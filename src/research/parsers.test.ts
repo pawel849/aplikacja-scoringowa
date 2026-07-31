@@ -39,9 +39,9 @@ describe("parser strony publicznej", () => {
   });
   it("wyciąga prawdziwy e-mail z tekstu i schema, odrzuca placeholdery oraz maskowane telefony", () => {
     const parsed = parsePublicPage(`<script type="application/ld+json">{"email":"schema@firma.pl","telephone":"+48 *** *** 123"}</script>
-      <p>Napisz: kontakt@inteli-home.pl lub jan@example.com. Telefon: +48 12* *** **9</p>`, "https://inteli-home.pl/kontakt");
+      <p>Napisz: kontakt@inteli-home.pl, instagram@intelihome.pl lub jan@example.com. Telefon: +48 12* *** **9</p>`, "https://inteli-home.pl/kontakt");
     expect(parsed.emails).toEqual(expect.arrayContaining(["kontakt@inteli-home.pl", "schema@firma.pl"]));
-    expect(parsed.emails).not.toContain("jan@example.com");
+    expect(parsed.emails).not.toEqual(expect.arrayContaining(["jan@example.com", "instagram@intelihome.pl"]));
     expect(parsed.phones).toEqual([]);
   });
   it("wyciąga wyłącznie jawne fakty firmowe, partnerstwo i portfolio", () => {

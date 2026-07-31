@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { boolean, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const confidenceEnum = pgEnum("confidence", ["LOW", "MEDIUM", "HIGH"]);
@@ -17,7 +18,11 @@ export const companies = pgTable("companies", {
   contactStatus: text("contact_status").notNull().default("NEW"), qualificationFinalStatus: qualificationEnum("qualification_final_status").notNull().default("UNQUALIFIED"),
   notes: text("notes"), manualOverrides: jsonb("manual_overrides").$type<Record<string, unknown>>().notNull().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow()
-}, (t) => [uniqueIndex("companies_domain_unique").on(t.domain), uniqueIndex("companies_nip_unique").on(t.nip), uniqueIndex("companies_krs_unique").on(t.krs)]);
+}, (t) => [
+  uniqueIndex("companies_domain_unique").on(t.domain), uniqueIndex("companies_nip_unique").on(t.nip), uniqueIndex("companies_krs_unique").on(t.krs),
+  uniqueIndex("companies_normalized_phone_unique_idx").on(t.normalizedPhone).where(sql`${t.normalizedPhone} IS NOT NULL`),
+  uniqueIndex("companies_normalized_name_unique_idx").on(t.normalizedName).where(sql`length(${t.normalizedName}) >= 8`)
+]);
 
 export const evidence = pgTable("evidence", {
   id: uuid("id").defaultRandom().primaryKey(), companyId: uuid("company_id").notNull().references(() => companies.id, { onDelete: "cascade" }),
@@ -54,4 +59,12 @@ export const researchErrors = pgTable("research_errors", {
 export const fetchCache = pgTable("fetch_cache", {
   url: text("url").primaryKey(), status: integer("status").notNull(), content: text("content"), contentType: text("content_type"),
   fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull()
+});
+export const researchLocks = pgTable("research_locks", {
+  companyId: uuid("company_id").primaryKey().references(() => companies.id, { onDelete: "cascade" }),
+  token: uuid("token").notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull()
+});
+export const loginAttempts = pgTable("login_attempts", {
+  key: text("key").primaryKey(), attempts: integer("attempts").notNull().default(0),
+  windowStartedAt: timestamp("window_started_at", { withTimezone: true }).notNull().defaultNow()
 });

@@ -48,6 +48,7 @@ export function parsePublicPage(html: string, pageUrl: string) {
     const email = raw.trim().replace(/[),.;:]+$/, "").toLowerCase();
     if (!/^[a-z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(email)) return;
     if (/(^|\.)(example\.(com|org|net))$/i.test(email.split("@")[1]) || /^(jan|john\.doe)@example/i.test(email)) return;
+    if (/^(instagram|facebook|youtube|linkedin|tiktok)@/i.test(email)) return;
     emails.add(email);
   };
   const validPhone = (raw: string) => {
@@ -85,12 +86,12 @@ export function parsePublicPage(html: string, pageUrl: string) {
   const portfolioUrls = [...links].filter((url) => /\/(realizacje?|portfolio|projekty?)(\/|$)/i.test(new URL(url).pathname));
   const description = metaText.find((x) => /\b(projekt|instal|automat|smart|BMS|KNX)\w*/i.test(x))
     || excerpt(/\b(projektujemy|instalujemy|specjalizujemy się|oferujemy|automatyka budynkowa)\b/i, visibleText);
-  const leadProcess = $("form").length > 0 || marketingPattern.test(scoringText);
+  const leadProcess = marketingPattern.test(scoringText);
   return { pageUrl, title: $("title").text().trim().slice(0, 200), text, emails: [...emails], phones: [...phones], links: [...links], technologies, excerpts,
     facts: { nip: nip?.length === 10 ? nip : undefined, krs, city, region, serviceDescription: description?.slice(0, 500), partnershipLevels, portfolioUrls },
     signalEvidence: {
       team: excerpt(teamPattern), twoCrews: excerpt(twoCrewsPattern), job: excerpt(jobPattern),
-      marketing: excerpt(marketingPattern) || ($("form").length ? "Widoczny formularz kontaktowy na stronie." : ""),
+      marketing: excerpt(marketingPattern),
       portfolio: excerpt(/\b(realizacje|portfolio|nasze projekty)\b/i),
       partnership: excerpt(/\b(Loxone|KNX|Grenton|Ampio)\s+(?:Silver|Gold|Platinum|Certified|Autoryzowany)?\s*Partner\b/i, text),
       comprehensive: excerpt(/\b(projekt\w*|montaż\w*|uruchom\w*|serwis\w*)\b/i),

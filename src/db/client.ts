@@ -34,7 +34,7 @@ export function getClient(): SqlClient {
     const sql = neon(process.env.DATABASE_URL);
     client = { async query<T>(query: string, params: unknown[] = []) { const rows = await sql.query(query, sanitizeSqlParams(params)) as T[]; return { rows }; } };
   } else {
-    if (process.env.VERCEL) throw new Error("Brak DATABASE_URL w środowisku Vercel. Skonfiguruj trwałą bazę Neon/Postgres przed uruchomieniem aplikacji.");
+    if (process.env.VERCEL || process.env.NODE_ENV === "production") throw new Error("Brak DATABASE_URL w środowisku produkcyjnym. Skonfiguruj trwałą bazę Neon/Postgres przed uruchomieniem aplikacji.");
     const path = process.env.PGLITE_PATH ?? "./data/leads";
     mkdirSync(dirname(path), { recursive: true });
     client = new PGlite(path) as unknown as SqlClient;

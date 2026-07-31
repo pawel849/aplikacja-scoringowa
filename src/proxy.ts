@@ -11,6 +11,9 @@ export async function proxy(request: NextRequest) {
     if (origin && origin !== request.nextUrl.origin) return NextResponse.json({ error: "Odrzucono żądanie z obcego źródła." }, { status: 403 });
   }
   const password = process.env.APP_PASSWORD;
+  if (!password && (process.env.VERCEL || process.env.NODE_ENV === "production") && request.nextUrl.pathname !== "/api/cron/research") {
+    return NextResponse.json({ error: "Brak APP_PASSWORD w konfiguracji produkcyjnej." }, { status: 503 });
+  }
   if (!password || request.nextUrl.pathname === "/login" || request.nextUrl.pathname === "/api/login" || request.nextUrl.pathname === "/api/cron/research") return NextResponse.next();
   if (request.cookies.get("app_session")?.value === await token(password)) return NextResponse.next();
   if (request.nextUrl.pathname.startsWith("/api/")) return NextResponse.json({ error: "Wymagane logowanie." }, { status: 401 });

@@ -2,16 +2,16 @@ import { parseCsvCompanies, type CsvCompany } from "./parsers";
 import * as cheerio from "cheerio";
 import { fetchPublicHtml } from "./crawler";
 export type DiscoveredCompany = CsvCompany & { sourceName: string; sourceUrl?: string };
-export interface ResearchConnector { name: string; discover(limit: number): Promise<DiscoveredCompany[]> }
+export interface ResearchConnector { name: string; discover(limit: number, deadlineMs?: number): Promise<DiscoveredCompany[]> }
 export class ManualUrlConnector implements ResearchConnector {
   name = "Ręczny URL";
   constructor(private url: string, private companyName?: string) {}
-  async discover(limit?: number) { void limit; return [{ name: this.companyName || new URL(this.url).hostname.replace(/^www\./, ""), website: this.url, sourceName: this.name, sourceUrl: this.url }]; }
+  async discover(limit?: number, deadlineMs?: number) { void limit; void deadlineMs; return [{ name: this.companyName || new URL(this.url).hostname.replace(/^www\./, ""), website: this.url, sourceName: this.name, sourceUrl: this.url }]; }
 }
 export class CsvConnector implements ResearchConnector {
   name = "Import CSV";
   constructor(private csv: string) {}
-  async discover(limit: number) { return parseCsvCompanies(this.csv).slice(0, limit).map((row) => ({ ...row, sourceName: row.sourceName || this.name })); }
+  async discover(limit: number, deadlineMs?: number) { void deadlineMs; return parseCsvCompanies(this.csv).slice(0, limit).map((row) => ({ ...row, sourceName: row.sourceName || this.name })); }
 }
 export type DirectoryConfig = { name: string; url?: string; enabled: boolean; parser?: (html: string) => DiscoveredCompany[] };
 const NON_COMPANY_HOSTS = new Set(["facebook.com", "instagram.com", "linkedin.com", "youtube.com", "twitter.com", "x.com"]);
@@ -33,9 +33,9 @@ export function parseGenericDirectory(html: string, directoryUrl: string, source
 export class DirectoryConnector implements ResearchConnector {
   constructor(public config: DirectoryConfig) {}
   get name() { return this.config.name; }
-  async discover(limit: number) {
+  async discover(limit: number, deadlineMs?: number) {
     if (!this.config.enabled || !this.config.url) return [];
-    const response = await fetchPublicHtml(this.config.url);
+    const response = await fetchPublicHtml(this.config.url, deadlineMs);
     if (response.status >= 400 || !response.content) throw new Error(`Katalog ${this.name}: HTTP ${response.status} lub brak HTML`);
     const rows = (this.config.parser ? this.config.parser(response.content) : parseGenericDirectory(response.content, this.config.url, this.name)).slice(0, limit);
     if (!rows.length) throw new Error(`Katalog ${this.name}: nie znaleziono jednoznacznych zewnętrznych linków firm.`);
