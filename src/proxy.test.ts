@@ -1,6 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { NextRequest } from "next/server";
 import { proxy } from "./proxy";
+beforeEach(() => { delete process.env.APP_PASSWORD; });
 afterEach(() => { delete process.env.APP_PASSWORD; });
 describe("ochrona aplikacji", () => {
  it("pozostaje wyłączona lokalnie bez APP_PASSWORD", async () => expect((await proxy(new NextRequest("http://localhost/"))).status).toBe(200));
