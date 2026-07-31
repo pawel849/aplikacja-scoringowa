@@ -72,6 +72,8 @@ export async function fetchPublicText(input: string | URL, options: {
   maxBytes: number;
   headers?: Record<string, string>;
   maxRedirects?: number;
+  method?: "GET" | "POST";
+  body?: string;
 }) {
   let target = new URL(input.toString());
   const maxRedirects = options.maxRedirects ?? 4;
@@ -91,6 +93,8 @@ export async function fetchPublicText(input: string | URL, options: {
     } });
     try {
       const response = await undiciFetch(resolved.url, {
+        method: options.method ?? "GET",
+        body: options.body,
         redirect: "manual",
         signal: AbortSignal.timeout(requestRemainingMs),
         headers: options.headers,
@@ -109,7 +113,8 @@ export async function fetchPublicText(input: string | URL, options: {
         status: response.status,
         content,
         contentType: response.headers.get("content-type"),
-        finalUrl: resolved.url.toString()
+        finalUrl: resolved.url.toString(),
+        headers: response.headers
       };
     } finally {
       await dispatcher.close();

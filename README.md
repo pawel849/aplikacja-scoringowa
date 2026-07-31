@@ -1,6 +1,6 @@
 # Radar Integratorów
 
-Wewnętrzny, polskojęzyczny MVP do publicznego researchu, deterministycznego scoringu i ręcznej kwalifikacji firm instalacyjnych oraz integratorów smart-home/BMS. System nie wysyła wiadomości i nie wymaga klucza wyszukiwarki ani LLM do importu CSV, ręcznych URL-i, analizy stron, scoringu, dashboardu i eksportu.
+Wewnętrzny, polskojęzyczny MVP do odkrywania firm w oficjalnych katalogach partnerów, publicznego researchu, deterministycznego scoringu i ręcznej kwalifikacji firm instalacyjnych oraz integratorów smart-home/BMS. System nie wysyła wiadomości i nie wymaga klucza wyszukiwarki ani LLM do katalogów Loxone, Grenton i Ampio, importu CSV, ręcznych URL-i, analizy stron, scoringu, dashboardu i eksportu.
 
 ## Uruchomienie lokalne
 
@@ -44,7 +44,7 @@ Eksport chroni arkusze przed CSV formula injection przez poprzedzenie wartości 
 
 Na produkcji `DATABASE_URL` i `APP_PASSWORD` są obowiązkowe. Aplikacja działa fail-closed: przy braku któregoś ustawienia zgłasza błąd konfiguracji zamiast uruchamiać nietrwałą bazę PGlite lub publiczny panel. Logowanie chroni całe UI i API (poza endpointem cron, który wymaga osobnego `CRON_SECRET`) ciasteczkiem `HttpOnly`, `Secure`, `SameSite=Strict` i atomowo ogranicza seryjne nieudane próby w PostgreSQL. Vercel dostarcza zaufany adres klienta; na innym hostingu trzeba ustawić `TRUSTED_CLIENT_IP_HEADER` zgodnie z nagłówkiem nadpisywanym przez zaufany reverse proxy. Bez `APP_PASSWORD` tylko lokalny development pozostaje otwarty; mutacje nadal odrzucają żądania z obcego `Origin`.
 
-`vercel.json` uruchamia `/api/cron/research` w poniedziałek o 06:00 UTC. Endpoint jest chroniony, zbiera do 30 pozycji z włączonych katalogów, deduplikuje je, bada firmy w kontrolowanym budżecie czasu, a pozostałe oznacza jako odłożone. W pozostałym budżecie sprawdza do pięciu starych firm i wybiera top 5. Błędy katalogu i rechecków są audytowane. Katalog można dodać i włączyć na dashboardzie; konserwatywny parser akceptuje tylko jasno nazwane, zewnętrzne strony firm. `SEARCH_API_KEY` i `LLM_API_KEY` są wyłącznie opcjonalnymi placeholderami.
+`vercel.json` uruchamia `/api/cron/research` w poniedziałek o 06:00 UTC. Endpoint jest chroniony, zbiera do 15 nowych firm z oficjalnych katalogów Loxone, Grenton i Ampio, deduplikuje je, przeplata wyniki źródeł i bada firmy w kontrolowanym budżecie czasu. Katalogi służą wyłącznie odkrywaniu kandydatów: batch nie traktuje ich jako kompletnego obrazu rynku i nie wygasza dowodów, statusów ani scoringu już zapisanych firm. Katalog KNX jest zapisany jako źródło potwierdzające certyfikację, ale jego publiczny endpoint nie udostępnia stron WWW instalatorów, dlatego sam nie dostarcza rekordów do crawlowania. W pozostałym budżecie cron sprawdza do pięciu starych firm i wybiera top 5. Błędy katalogów i ponownych sprawdzeń są audytowane. Nieoficjalny katalog można dodać na dashboardzie; konserwatywny parser odrzuca nawigację producentów, social media, sklepy, wsparcie i strony typu „Kariera”. `SEARCH_API_KEY` i `LLM_API_KEY` są wyłącznie opcjonalnymi placeholderami.
 
 ## Bezpieczeństwo i etyka
 

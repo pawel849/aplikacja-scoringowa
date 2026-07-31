@@ -8,7 +8,7 @@ export async function GET(request: Request) {
   try {
     const startedAt = Date.now();
     const db = getClient(), sources = await db.query<{ name: string; enabled: boolean; config: Record<string, unknown> }>("SELECT name,enabled,config FROM research_sources WHERE enabled=true");
-    const batch = await runBatch(sources.rows.map((x) => new DirectoryConnector({ name: x.name, enabled: x.enabled, url: x.config.url as string | undefined })), { maxCandidates: 30, budgetMs: 150_000 });
+    const batch = await runBatch(sources.rows.map((x) => new DirectoryConnector({ name: x.name, enabled: x.enabled, url: x.config.url as string | undefined })), { maxCandidates: 15, budgetMs: 150_000 });
     const stale = await db.query<{ id: string }>("SELECT id FROM companies WHERE website IS NOT NULL AND (checked_at IS NULL OR checked_at < now()-interval '30 days') ORDER BY checked_at NULLS FIRST LIMIT 5");
     let rechecked=0, recheckErrors=0;
     const deadlineMs = startedAt + 285_000;

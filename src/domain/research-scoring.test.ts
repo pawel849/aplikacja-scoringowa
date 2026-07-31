@@ -21,6 +21,12 @@ describe("dojrzałość oparta na unikalnych dowodach", () => {
     expect(calculateMaturitySignal({ portfolioUrls: [], partnershipLevels: ["Loxone Silver Partner"] }).points).toBe(1);
   });
 
+  it("rozpoznaje znormalizowane poziomy live API Loxone", () => {
+    expect(calculateMaturitySignal({ portfolioUrls: [], partnershipLevels: ["Loxone Gold Partner"] })).toMatchObject({ points: 2, reason: "HIGH_PARTNER_STATUS" });
+    expect(calculateMaturitySignal({ portfolioUrls: [], partnershipLevels: ["Loxone Platinum Partner"] })).toMatchObject({ points: 2, reason: "HIGH_PARTNER_STATUS" });
+    expect(calculateMaturitySignal({ portfolioUrls: [], partnershipLevels: ["Loxone Registered Partner"] }).points).toBe(1);
+  });
+
   it("przyznaje dwa punkty za minimum 20 wiarygodnie ustalonych opinii", () => {
     expect(calculateMaturitySignal({ portfolioUrls: [], partnershipLevels: [], reviewCount: 20 }).points).toBe(2);
     expect(calculateMaturitySignal({ portfolioUrls: [], partnershipLevels: [], reviewCount: 10 }).points).toBe(1);

@@ -14,7 +14,7 @@ export function CsvImport() {
   </form>;
 }
 export function BatchButton() {
-  const [m,setM]=useState(""); return <><button onClick={async()=>{setM("Uruchamiam…");const r=await fetch("/api/research/batch",{method:"POST"});const j=await r.json();setM(r.ok?`Zakończono: ${j.checked} sprawdzonych, ${j.created} nowych.`:`Błąd: ${typeof j.error==="string"?j.error:JSON.stringify(j.error)}`);if(r.ok)location.reload();}}>Nowy batch</button> <span className="muted">{m}</span></>;
+  const [m,setM]=useState(""); return <><button onClick={async()=>{setM("Szukam i analizuję do 15 firm…");const r=await fetch("/api/research/batch",{method:"POST"});const j=await r.json();setM(r.ok?`Zakończono: ${j.checked} sprawdzonych, ${j.created} nowych.`:`Błąd: ${typeof j.error==="string"?j.error:JSON.stringify(j.error)}`);if(r.ok)location.reload();}}>Znajdź 15 firm</button> <span className="muted">{m}</span></>;
 }
 export function RecheckButton({id}:{id:string}) {
   const [m,setM]=useState(""); return <><button onClick={async()=>{setM("Sprawdzam…");const r=await fetch(`/api/companies/${id}/recheck`,{method:"POST"});setM(r.ok?"Gotowe — odświeżam…":"Błąd");if(r.ok)location.reload();}}>Sprawdź ponownie</button> <span className="muted">{m}</span></>;

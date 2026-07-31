@@ -21,31 +21,82 @@ type CompanyRow = {
   partnership_levels: string[]; portfolio_urls: string[]; decision_makers: unknown[]; public_job_postings: unknown[];
   score: number; completeness: number; manual_overrides: Record<string, unknown>;
 };
-export async function upsertCandidate(c: DiscoveredCompany) {
+type DirectoryPartnershipEvidence = { id: string; excerpt: string; source_url: string };
+export function mergePartnershipLevels(crawled: string[], directoryEvidence: DirectoryPartnershipEvidence[]) {
+  return [...new Set([...crawled, ...directoryEvidence.map((row) => row.excerpt)])];
+}
+export async function upsertCandidate(c: DiscoveredCompany, options: { mergeExistingIds?: ReadonlySet<string> } = {}) {
   const db = getClient(), domain = normalizeDomain(c.domain || c.website), phone = normalizePhone(c.phone), normalizedName = normalizeName(c.name);
+  const partnershipLevels = [...new Set(c.partnershipLevels ?? [])];
+  const partnershipPrefix = partnershipLevels.map((level) => level.match(/^(Loxone|Grenton|Ampio|KNX)\b/i)?.[1]).find(Boolean) || c.sourceName;
+  const hasDirectoryEvidence = Boolean(c.sourceUrl && partnershipLevels.length);
   const identifiers = [domain, c.nip || null, c.krs || null, phone, normalizedName];
   const findMatch = async () => {
     const rows = (await db.query<CompanyRow>("SELECT * FROM companies WHERE ($1::text IS NOT NULL AND domain=$1) OR ($2::text IS NOT NULL AND nip=$2) OR ($3::text IS NOT NULL AND krs=$3) OR ($4::text IS NOT NULL AND normalized_phone=$4) OR (normalized_name=$5 AND length($5)>=8)", identifiers)).rows;
     if (rows.length > 1) throw new Error("Identyfikatory kandydata wskazują różne firmy; wymagane jest ręczne scalenie.");
     return rows[0];
   };
-  const merge = async (id: string) => db.query(`UPDATE companies SET
-    domain=COALESCE(domain,$2),website=COALESCE(website,$3),nip=COALESCE(nip,$4),krs=COALESCE(krs,$5),
-    phone=COALESCE(phone,$6),normalized_phone=COALESCE(normalized_phone,$7),public_email=COALESCE(public_email,$8),
-    region=COALESCE(region,$9),city=COALESCE(city,$10),
-    source_names=COALESCE((SELECT jsonb_agg(DISTINCT x) FROM jsonb_array_elements_text(source_names||$11::jsonb) x),'[]'::jsonb),
-    source_urls=COALESCE((SELECT jsonb_agg(DISTINCT x) FROM jsonb_array_elements_text(source_urls||$12::jsonb) x),'[]'::jsonb),updated_at=now() WHERE id=$1`,
+  const merge = async (id: string) => db.query<{ id: string }>(`WITH updated_company AS (
+    UPDATE companies SET
+      domain=COALESCE(domain,$2),website=COALESCE(website,$3),nip=COALESCE(nip,$4),krs=COALESCE(krs,$5),
+      phone=COALESCE(phone,$6),normalized_phone=COALESCE(normalized_phone,$7),public_email=COALESCE(public_email,$8),
+      region=COALESCE(region,$9),city=COALESCE(city,$10),
+      partnership_levels=CASE
+        WHEN manual_overrides ? 'partnershipLevels' OR NOT $15::boolean THEN partnership_levels
+        ELSE COALESCE((SELECT jsonb_agg(DISTINCT level) FROM (
+          SELECT value AS level FROM jsonb_array_elements_text(partnership_levels)
+          WHERE lower(value) <> lower($14) AND lower(value) NOT LIKE lower($14)||' %'
+          UNION ALL SELECT value AS level FROM jsonb_array_elements_text($11::jsonb)
+        ) merged_levels),'[]'::jsonb)
+      END,
+      source_names=COALESCE((SELECT jsonb_agg(DISTINCT value) FROM jsonb_array_elements_text(source_names||$12::jsonb)),'[]'::jsonb),
+      source_urls=COALESCE((SELECT jsonb_agg(DISTINCT value) FROM jsonb_array_elements_text(source_urls||$13::jsonb)),'[]'::jsonb),updated_at=now()
+    WHERE id=$1 RETURNING id
+  ), removed_evidence AS (
+    DELETE FROM evidence e USING updated_company company
+    WHERE e.company_id=company.id AND e.evidence_type='DIRECTORY_PARTNERSHIP' AND e.context=$16 AND $15::boolean
+    RETURNING e.id
+  ), inserted_evidence AS (
+    INSERT INTO evidence(company_id,scoring_category,awarded_points,source_url,excerpt,confidence,evidence_type,context)
+    SELECT company.id,'FACT',0,$17,level.value,'HIGH','DIRECTORY_PARTNERSHIP',$16
+    FROM updated_company company
+    CROSS JOIN LATERAL jsonb_array_elements_text($11::jsonb) AS level(value)
+    CROSS JOIN (SELECT count(*) FROM removed_evidence) synchronized
+    WHERE $15::boolean
+    RETURNING company_id
+  )
+  SELECT company.id FROM updated_company company CROSS JOIN (SELECT count(*) FROM inserted_evidence) completed`,
     [id, domain, c.website || null, c.nip || null, c.krs || null, c.phone || null, phone, c.publicEmail || null, c.region || null, c.city || null,
-      JSON.stringify([c.sourceName]), JSON.stringify(c.sourceUrl ? [c.sourceUrl] : [])]);
+      JSON.stringify(partnershipLevels), JSON.stringify([c.sourceName]), JSON.stringify(c.sourceUrl ? [c.sourceUrl] : []), partnershipPrefix,
+      hasDirectoryEvidence, c.sourceName, c.sourceUrl || null]);
   const matched = await findMatch();
   if (matched) {
+    if (options.mergeExistingIds && !options.mergeExistingIds.has(matched.id)) return { id: matched.id, created: false, skipped: true };
     await merge(matched.id);
     return { id: matched.id, created: false };
   }
-  const inserted = await db.query<{ id: string }>("INSERT INTO companies(name,normalized_name,domain,website,country,region,city,phone,normalized_phone,public_email,nip,krs,source_names,source_urls) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT DO NOTHING RETURNING id", [c.name, normalizedName, domain, c.website || null, c.country || "PL", c.region || null, c.city || null, c.phone || null, phone, c.publicEmail || null, c.nip || null, c.krs || null, JSON.stringify([c.sourceName]), JSON.stringify(c.sourceUrl ? [c.sourceUrl] : [])]);
-  if (inserted.rows[0]) return { id: inserted.rows[0].id, created: true };
+  const inserted = await db.query<{ id: string }>(`WITH inserted_company AS (
+    INSERT INTO companies(name,normalized_name,domain,website,country,region,city,phone,normalized_phone,public_email,nip,krs,partnership_levels,source_names,source_urls)
+    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+    ON CONFLICT DO NOTHING RETURNING id
+  ), inserted_evidence AS (
+    INSERT INTO evidence(company_id,scoring_category,awarded_points,source_url,excerpt,confidence,evidence_type,context)
+    SELECT company.id,'FACT',0,$17,level.value,'HIGH','DIRECTORY_PARTNERSHIP',$16
+    FROM inserted_company company
+    CROSS JOIN LATERAL jsonb_array_elements_text($13::jsonb) AS level(value)
+    WHERE $18::boolean
+    RETURNING company_id
+  )
+  SELECT company.id FROM inserted_company company CROSS JOIN (SELECT count(*) FROM inserted_evidence) completed`,
+    [c.name, normalizedName, domain, c.website || null, c.country || "PL", c.region || null, c.city || null, c.phone || null, phone,
+      c.publicEmail || null, c.nip || null, c.krs || null, JSON.stringify(partnershipLevels), JSON.stringify([c.sourceName]),
+      JSON.stringify(c.sourceUrl ? [c.sourceUrl] : []), c.sourceName, c.sourceUrl || null, hasDirectoryEvidence]);
+  if (inserted.rows[0]) {
+    return { id: inserted.rows[0].id, created: true };
+  }
   const concurrent = await findMatch();
   if (!concurrent) throw new Error("Nie udało się bezpiecznie scalić równoległego importu.");
+  if (options.mergeExistingIds && !options.mergeExistingIds.has(concurrent.id)) return { id: concurrent.id, created: false, skipped: true };
   await merge(concurrent.id);
   return { id: concurrent.id, created: false };
 }
@@ -54,6 +105,10 @@ export async function researchCompany(companyId: string, parentRunId?: string, d
   const company = (await db.query<CompanyRow>("SELECT * FROM companies WHERE id=$1", [companyId])).rows[0];
   if (!company) throw new Error("Nie znaleziono firmy.");
   if (!company.website) throw new Error("Firma nie ma strony WWW.");
+  const directoryPartnershipEvidence = (await db.query<DirectoryPartnershipEvidence>(
+    "SELECT id,excerpt,source_url FROM evidence WHERE company_id=$1 AND evidence_type='DIRECTORY_PARTNERSHIP' ORDER BY found_at",
+    [companyId]
+  )).rows;
   const ownedRun = !parentRunId;
   const lockToken = crypto.randomUUID();
   const lock = await db.query<{ token: string }>(`INSERT INTO research_locks(company_id,token,expires_at) VALUES($1,$2,now()+interval '10 minutes')
@@ -104,7 +159,7 @@ export async function researchCompany(companyId: string, parentRunId?: string, d
   }
   const first = <K extends keyof typeof facts[number]>(key: K) => facts.map((x) => x[key]).find((x) => Array.isArray(x) ? x.length : Boolean(x));
   const rawPortfolios = facts.flatMap((x) => x.portfolioUrls);
-  const partnerships = [...new Set(facts.flatMap((x) => x.partnershipLevels))];
+  const partnerships = mergePartnershipLevels(facts.flatMap((x) => x.partnershipLevels), directoryPartnershipEvidence);
   const maturitySignal = calculateMaturitySignal({ portfolioUrls: rawPortfolios, partnershipLevels: partnerships });
   const portfolios = maturitySignal.uniquePortfolioUrls.slice(0, 30);
   const findPage = (test: (p: typeof crawl.pages[number]) => boolean) => crawl.pages.find(test);
@@ -134,6 +189,9 @@ export async function researchCompany(companyId: string, parentRunId?: string, d
     const excerpt = page?.signalEvidence[evidenceKey]
       || (category === "MATURITY" && portfolios[0] ? `Publiczny link do realizacji lub portfolio: ${portfolios[0]}` : "");
     if (points > 0 && page && excerpt) addEvidence(category, points, excerpt, page.pageUrl, `CRAWL_${category}`);
+    else if (points > 0 && category === "MATURITY" && directoryPartnershipEvidence.length) {
+      evidenceIds[category].push(...directoryPartnershipEvidence.map((row) => row.id));
+    }
     else if (points > 0) pair[1] = 0;
   }
   const breakdown: BreakdownInput[] = pointPairs.map(([category, points]) => ({ category: category as BreakdownInput["category"], points, rationale: points ? `Publiczny sygnał: ${pointPairs.find((x) => x[0] === category)?.[3]}.` : "Brak publicznego dowodu.", evidenceIds: evidenceIds[category] }));
@@ -198,27 +256,84 @@ export async function researchCompany(companyId: string, parentRunId?: string, d
     await db.query("DELETE FROM research_locks WHERE company_id=$1 AND token=$2", [companyId, lockToken]);
   }
 }
+export function selectBatchCandidates(
+  groups: Array<{ sourceName: string; candidates: DiscoveredCompany[] }>,
+  existingDomains: Set<string>,
+  limit: number
+) {
+  const queues = groups.map((group) => ({
+    ...group,
+    fresh: group.candidates.filter((candidate) => {
+      const domain = normalizeDomain(candidate.domain || candidate.website);
+      return domain && !existingDomains.has(domain);
+    })
+  }));
+  const selected: DiscoveredCompany[] = [], seen = new Set<string>();
+  let moved = true;
+  while (selected.length < limit && moved) {
+    moved = false;
+    for (const queue of queues) {
+        while (queue.fresh.length) {
+          const candidate = queue.fresh.shift()!;
+          const domain = normalizeDomain(candidate.domain || candidate.website);
+          if (!domain || seen.has(domain)) continue;
+          seen.add(domain); selected.push(candidate); moved = true; break;
+        }
+        if (selected.length >= limit) break;
+    }
+  }
+  return selected;
+}
+
+export function expandSelectedCandidateSources(
+  selected: DiscoveredCompany[],
+  groups: Array<{ sourceName: string; candidates: DiscoveredCompany[] }>
+) {
+  const selectedDomains = new Set(selected.map((candidate) => normalizeDomain(candidate.domain || candidate.website)).filter(Boolean));
+  const seen = new Set<string>();
+  return groups.flatMap((group) => group.candidates).filter((candidate) => {
+    const domain = normalizeDomain(candidate.domain || candidate.website);
+    const key = `${domain}\0${candidate.sourceName}\0${candidate.sourceUrl ?? ""}`;
+    if (!domain || !selectedDomains.has(domain) || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+export function clampBatchCandidateLimit(value = 15) {
+  return Math.min(15, Math.max(0, Math.floor(Number.isFinite(value) ? value : 15)));
+}
+
 export async function runBatch(connectors: ResearchConnector[], options: { maxCandidates?: number; budgetMs?: number } = {}) {
   const db = getClient(), run = (await db.query<{ id: string }>("INSERT INTO research_runs(type,status) VALUES('BATCH','RUNNING') RETURNING id")).rows[0];
-  const startedAt = Date.now(), maxCandidates = options.maxCandidates ?? 30, budgetMs = options.budgetMs ?? 240_000;
-  const workDeadline = startedAt + Math.max(0, budgetMs - 5_000);
+  const startedAt = Date.now(), maxCandidates = clampBatchCandidateLimit(options.maxCandidates), budgetMs = options.budgetMs ?? 240_000;
+  const finalizationReserveMs = Math.min(5_000, Math.max(0, budgetMs), Math.max(1, budgetMs * 0.1));
+  const usableWorkMs = Math.max(0, budgetMs - finalizationReserveMs);
+  const workDeadline = startedAt + usableWorkMs;
+  const discoveryDeadline = startedAt + Math.min(usableWorkMs, 60_000, Math.max(1, usableWorkMs * 0.35));
   let discovered = 0, created = 0, checked = 0, attempted = 0;
-  const queue: { id: string; sourceName: string }[] = [], queued = new Set<string>();
+  const groups: Array<{ sourceName: string; candidates: DiscoveredCompany[] }> = [];
+  const queue: { id: string; sourceName: string }[] = [], queued = new Set<string>(), createdThisBatch = new Set<string>();
   try {
+    const discoveryLimit = 5_000;
     for (const connector of connectors) {
-      if (discovered >= maxCandidates || Date.now() >= workDeadline) break;
+      if (Date.now() >= discoveryDeadline) break;
       try {
-        const candidates = await beforeDeadline(connector.discover(maxCandidates - discovered, workDeadline), workDeadline);
-        for (const candidate of candidates) {
-          if (discovered >= maxCandidates || Date.now() >= workDeadline) break;
-          discovered++;
-          const saved = await upsertCandidate(candidate);
-          if (saved.created) created++;
-          if (!queued.has(saved.id)) { queued.add(saved.id); queue.push({ id: saved.id, sourceName: connector.name }); }
-        }
+        const candidates = await beforeDeadline(connector.discover(discoveryLimit, discoveryDeadline), discoveryDeadline);
+        groups.push({ sourceName: connector.name, candidates });
       } catch (error) {
         await db.query("INSERT INTO research_errors(run_id,source_name,code,message,retryable) VALUES($1,$2,'CONNECTOR_ERROR',$3,true)", [run.id, connector.name, error instanceof Error ? error.message : String(error)]);
       }
+    }
+    const existing = await db.query<{ domain: string }>("SELECT domain FROM companies WHERE domain IS NOT NULL");
+    const selected = selectBatchCandidates(groups, new Set(existing.rows.map((row) => row.domain)), maxCandidates);
+    discovered = selected.length;
+    for (const candidate of expandSelectedCandidateSources(selected, groups)) {
+      if (Date.now() >= workDeadline) break;
+      const saved = await upsertCandidate(candidate, { mergeExistingIds: createdThisBatch });
+      if (saved.skipped) continue;
+      if (saved.created) { created++; createdThisBatch.add(saved.id); }
+      if (!queued.has(saved.id)) { queued.add(saved.id); queue.push({ id: saved.id, sourceName: candidate.sourceName }); }
     }
     for (const company of queue) {
       if (Date.now() >= workDeadline) break;
