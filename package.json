@@ -1,0 +1,47 @@
+{
+  "name": "lead-scorer-pl",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "vercel-build": "npm run db:migrate && next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "demo:research": "tsx scripts/demo-research.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.3.10",
+    "@neondatabase/serverless": "^1.0.1",
+    "cheerio": "^1.1.0",
+    "csv-parse": "^5.6.0",
+    "drizzle-orm": "^0.45.2",
+    "next": "^16.2.12",
+    "p-limit": "^6.2.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "zod": "^4.0.10"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^22.16.5",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitest/coverage-v8": "^4.1.10",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.12",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "postcss": "8.5.25",
+    "sharp": "0.35.3",
+    "minimatch": "10.2.6",
+    "brace-expansion": "5.0.9"
+  }
+}
